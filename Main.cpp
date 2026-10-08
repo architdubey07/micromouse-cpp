@@ -1,84 +1,183 @@
 // ==========================================================
-//             MICROMOUSE - FLOOD FILL
+//                 MICROMOUSE - FLOOD FILL
+//                    MMS C++ VERSION
 // ==========================================================
+
+#include <iostream>
+#include <algorithm>
+#include <cstdlib>
+#include "API.h"
+
+using namespace std;
 
 #define N 16
 
-int maze[N][N];
-int dist[N][N];
-
-int x = 0;
-int y = 0;
-
+// ==========================================================
+// COORDINATES
+// ==========================================================
+// x -> East / West
+// y -> North / South
+//
 // Direction:
 // 0 = North
 // 1 = East
 // 2 = South
 // 3 = West
+// ==========================================================
+
+int x = 0;
+int y = 0;
 int dir = 0;
 
+// wall[y][x]
+// Bit 0 = North
+// Bit 1 = East
+// Bit 2 = South
+// Bit 3 = West
+int wall[N][N];
 
-// ----------------------------------------------------------
-// Initialize flood-fill distances
-// Goal = center 2x2 cells
-// ----------------------------------------------------------
+// Flood-fill distance
+int dist[N][N];
 
-void initDistances()
+
+// ==========================================================
+// CHECK IF CURRENT CELL IS GOAL
+// ==========================================================
+
+bool isGoal()
 {
-    for (int i = 0; i < N; i++)
-    {
-        for (int j = 0; j < N; j++)
-        {
-            int d1 = abs(i - 7) + abs(j - 7);
-            int d2 = abs(i - 7) + abs(j - 8);
-            int d3 = abs(i - 8) + abs(j - 7);
-            int d4 = abs(i - 8) + abs(j - 8);
+    return ((x == 7 || x == 8) &&
+            (y == 7 || y == 8));
+}
 
-            dist[i][j] = min(min(d1, d2), min(d3, d4));
+
+// ==========================================================
+// SET WALL
+// Also sets the opposite wall in neighboring cell
+// ==========================================================
+
+void setWall(int cx, int cy, int d)
+{
+    if (cx < 0 || cx >= N ||
+        cy < 0 || cy >= N)
+        return;
+
+    // Set wall in current cell
+    wall[cy][cx] |= (1 << d);
+
+    // Find neighboring cell
+    int nx = cx;
+    int ny = cy;
+
+    if (d == 0)       // North
+        ny++;
+
+    else if (d == 1)  // East
+        nx++;
+
+    else if (d == 2)  // South
+        ny--;
+
+    else if (d == 3)  // West
+        nx--;
+
+    // Set opposite wall in neighboring cell
+    if (nx >= 0 && nx < N &&
+        ny >= 0 && ny < N)
+    {
+        int opposite = (d + 2) % 4;
+
+        wall[ny][nx] |= (1 << opposite);
+    }
+}
+
+
+// ==========================================================
+// INITIALIZE MAZE
+// ==========================================================
+
+void initializeMaze()
+{
+    // Clear wall information
+    for (int y = 0; y < N; y++)
+    {
+        for (int x = 0; x < N; x++)
+        {
+            wall[y][x] = 0;
+        }
+    }
+
+    // South boundary
+    for (int x = 0; x < N; x++)
+        setWall(x, 0, 2);
+
+    // North boundary
+    for (int x = 0; x < N; x++)
+        setWall(x, N - 1, 0);
+
+    // West boundary
+    for (int y = 0; y < N; y++)
+        setWall(0, y, 3);
+
+    // East boundary
+    for (int y = 0; y < N; y++)
+        setWall(N - 1, y, 1);
+}
+
+
+// ==========================================================
+// INITIAL FLOOD-FILL VALUES
+// Goal = center 2x2
+// ==========================================================
+
+void initializeDistances()
+{
+    for (int y = 0; y < N; y++)
+    {
+        for (int x = 0; x < N; x++)
+        {
+            int d1 = abs(x - 7) + abs(y - 7);
+            int d2 = abs(x - 7) + abs(y - 8);
+            int d3 = abs(x - 8) + abs(y - 7);
+            int d4 = abs(x - 8) + abs(y - 8);
+
+            dist[y][x] =
+                min(min(d1, d2),
+                    min(d3, d4));
         }
     }
 }
 
 
-// ----------------------------------------------------------
-// Read walls around current cell
-// ----------------------------------------------------------
+// ==========================================================
+// READ WALLS FROM MMS
+// ==========================================================
 
-void readWalls()
+void updateWalls()
 {
-    bool front = wallFront();
-    bool left  = wallLeft();
-    bool right = wallRight();
+    // Front wall
+    if (API::wallFront())
+    {
+        setWall(x, y, dir);
+    }
 
-    // Store walls according to current direction
+    // Right wall
+    if (API::wallRight())
+    {
+        setWall(x, y, (dir + 1) % 4);
+    }
 
-    if (front)
-        maze[y][x] |= (1 << dir);
-
-    if (left)
-        maze[y][x] |= (1 << ((dir + 3) % 4));
-
-    if (right)
-        maze[y][x] |= (1 << ((dir + 1) % 4));
+    // Left wall
+    if (API::wallLeft())
+    {
+        setWall(x, y, (dir + 3) % 4);
+    }
 }
 
 
-// ----------------------------------------------------------
-// Check whether movement is possible
-// ----------------------------------------------------------
-
-bool canMove(int nx, int ny)
-{
-    if (nx < 0 || nx >= N || ny < 0 || ny >= N)
-        return false;
-
-    return true;
-}
-
-
-// ----------------------------------------------------------
-// Recalculate flood-fill values
-// ----------------------------------------------------------
+// ==========================================================
+// FLOOD FILL
+// ==========================================================
 
 void floodFill()
 {
@@ -88,48 +187,75 @@ void floodFill()
     {
         changed = false;
 
-        for (int i = 0; i < N; i++)
+        for (int cy = 0; cy < N; cy++)
         {
-            for (int j = 0; j < N; j++)
+            for (int cx = 0; cx < N; cx++)
             {
-                // Don't modify goal cells
-                if ((i == 7 || i == 8) &&
-                    (j == 7 || j == 8))
+                // Goal cells remain zero
+                if ((cx == 7 || cx == 8) &&
+                    (cy == 7 || cy == 8))
+                {
                     continue;
+                }
 
                 int best = 1000;
 
-                // North
-                if (i + 1 < N)
+                // --------------------------
+                // NORTH
+                // --------------------------
+
+                if (cy + 1 < N &&
+                    !(wall[cy][cx] & (1 << 0)))
                 {
-                    if (!(maze[i][j] & (1 << 0)))
-                        best = min(best, dist[i + 1][j] + 1);
+                    best = min(
+                        best,
+                        dist[cy + 1][cx] + 1
+                    );
                 }
 
-                // East
-                if (j + 1 < N)
+                // --------------------------
+                // EAST
+                // --------------------------
+
+                if (cx + 1 < N &&
+                    !(wall[cy][cx] & (1 << 1)))
                 {
-                    if (!(maze[i][j] & (1 << 1)))
-                        best = min(best, dist[i][j + 1] + 1);
+                    best = min(
+                        best,
+                        dist[cy][cx + 1] + 1
+                    );
                 }
 
-                // South
-                if (i - 1 >= 0)
+                // --------------------------
+                // SOUTH
+                // --------------------------
+
+                if (cy - 1 >= 0 &&
+                    !(wall[cy][cx] & (1 << 2)))
                 {
-                    if (!(maze[i][j] & (1 << 2)))
-                        best = min(best, dist[i - 1][j] + 1);
+                    best = min(
+                        best,
+                        dist[cy - 1][cx] + 1
+                    );
                 }
 
-                // West
-                if (j - 1 >= 0)
+                // --------------------------
+                // WEST
+                // --------------------------
+
+                if (cx - 1 >= 0 &&
+                    !(wall[cy][cx] & (1 << 3)))
                 {
-                    if (!(maze[i][j] & (1 << 3)))
-                        best = min(best, dist[i][j - 1] + 1);
+                    best = min(
+                        best,
+                        dist[cy][cx - 1] + 1
+                    );
                 }
 
-                if (dist[i][j] != best)
+                // Update distance
+                if (dist[cy][cx] != best)
                 {
-                    dist[i][j] = best;
+                    dist[cy][cx] = best;
                     changed = true;
                 }
             }
@@ -138,55 +264,67 @@ void floodFill()
 }
 
 
-// ----------------------------------------------------------
-// Choose best neighboring cell
-// ----------------------------------------------------------
+// ==========================================================
+// FIND BEST NEXT DIRECTION
+// ==========================================================
 
-int bestDirection()
+int getBestDirection()
 {
-    int bestDir = dir;
-    int bestDist = 1000;
+    int bestDir = -1;
+    int bestValue = 1000;
 
-    // North
+    // --------------------------
+    // NORTH
+    // --------------------------
+
     if (y + 1 < N &&
-        !(maze[y][x] & (1 << 0)))
+        !(wall[y][x] & (1 << 0)))
     {
-        if (dist[y + 1][x] < bestDist)
+        if (dist[y + 1][x] < bestValue)
         {
-            bestDist = dist[y + 1][x];
+            bestValue = dist[y + 1][x];
             bestDir = 0;
         }
     }
 
-    // East
+    // --------------------------
+    // EAST
+    // --------------------------
+
     if (x + 1 < N &&
-        !(maze[y][x] & (1 << 1)))
+        !(wall[y][x] & (1 << 1)))
     {
-        if (dist[y][x + 1] < bestDist)
+        if (dist[y][x + 1] < bestValue)
         {
-            bestDist = dist[y][x + 1];
+            bestValue = dist[y][x + 1];
             bestDir = 1;
         }
     }
 
-    // South
+    // --------------------------
+    // SOUTH
+    // --------------------------
+
     if (y - 1 >= 0 &&
-        !(maze[y][x] & (1 << 2)))
+        !(wall[y][x] & (1 << 2)))
     {
-        if (dist[y - 1][x] < bestDist)
+        if (dist[y - 1][x] < bestValue)
         {
-            bestDist = dist[y - 1][x];
+            bestValue = dist[y - 1][x];
             bestDir = 2;
         }
     }
 
-    // West
+    // --------------------------
+    // WEST
+    // --------------------------
+
     if (x - 1 >= 0 &&
-        !(maze[y][x] & (1 << 3)))
+        !(wall[y][x] & (1 << 3)))
     {
-        if (dist[y][x - 1] < bestDist)
+        if (dist[y][x - 1] < bestValue)
         {
-            bestDist = dist[y][x - 1];
+            bestValue = dist[y][x - 1];
             bestDir = 3;
         }
     }
@@ -195,89 +333,169 @@ int bestDirection()
 }
 
 
-// ----------------------------------------------------------
-// Rotate to required direction
-// ----------------------------------------------------------
+// ==========================================================
+// TURN TO REQUIRED DIRECTION
+// ==========================================================
 
-void rotateTo(int target)
+void turnTo(int target)
 {
     int diff = (target - dir + 4) % 4;
 
+    // 90° right
     if (diff == 1)
     {
-        turnRight();
+        API::turnRight();
     }
+
+    // 180°
     else if (diff == 2)
     {
-        turnRight();
-        turnRight();
+        API::turnRight();
+        API::turnRight();
     }
+
+    // 90° left
     else if (diff == 3)
     {
-        turnLeft();
+        API::turnLeft();
     }
 
     dir = target;
 }
 
 
-// ----------------------------------------------------------
-// Move to next cell
-// ----------------------------------------------------------
+// ==========================================================
+// MOVE ONE CELL
+// ==========================================================
 
 void moveTo(int target)
 {
-    rotateTo(target);
+    // Turn first
+    turnTo(target);
 
-    moveForward();
+    // Move forward
+    API::moveForward();
 
+    // Update our coordinates
     if (dir == 0)
-        y++;
-
-    else if (dir == 1)
-        x++;
-
-    else if (dir == 2)
-        y--;
-
-    else if (dir == 3)
-        x--;
-}
-
-
-// ----------------------------------------------------------
-// Main
-// ----------------------------------------------------------
-
-void setup()
-{
-    initDistances();
-
-    // Start position
-    x = 0;
-    y = 0;
-    dir = 0;
-}
-
-
-void loop()
-{
-    // Stop when center is reached
-    if ((x == 7 || x == 8) &&
-        (y == 7 || y == 8))
     {
-        return;
+        // North
+        y++;
     }
 
-    // Detect walls
-    readWalls();
+    else if (dir == 1)
+    {
+        // East
+        x++;
+    }
 
-    // Update flood-fill
-    floodFill();
+    else if (dir == 2)
+    {
+        // South
+        y--;
+    }
 
-    // Find best direction
-    int nextDir = bestDirection();
+    else if (dir == 3)
+    {
+        // West
+        x--;
+    }
+}
 
-    // Move
-    moveTo(nextDir);
+
+// ==========================================================
+// MAIN
+// ==========================================================
+
+int main()
+{
+    // ------------------------------------
+    // INITIALIZATION
+    // ------------------------------------
+
+    initializeMaze();
+    initializeDistances();
+
+    API::setColor(0, 0, 'G');
+
+    cerr << "Micromouse started!" << endl;
+
+
+    // ------------------------------------
+    // MAIN FLOOD-FILL LOOP
+    // ------------------------------------
+
+    while (true)
+    {
+        // Check goal
+        if (isGoal())
+        {
+            API::setColor(x, y, 'G');
+            API::setText(x, y, "GOAL");
+
+            cerr << "=========================" << endl;
+            cerr << "       GOAL REACHED      " << endl;
+            cerr << "Position: "
+                 << x << ", "
+                 << y << endl;
+            cerr << "=========================" << endl;
+
+            break;
+        }
+
+
+        // --------------------------------
+        // 1. READ WALLS
+        // --------------------------------
+
+        updateWalls();
+
+
+        // --------------------------------
+        // 2. RECALCULATE FLOOD FILL
+        // --------------------------------
+
+        floodFill();
+
+
+        // --------------------------------
+        // 3. FIND BEST CELL
+        // --------------------------------
+
+        int nextDir = getBestDirection();
+
+
+        // --------------------------------
+        // SAFETY CHECK
+        // --------------------------------
+
+        if (nextDir == -1)
+        {
+            cerr << "ERROR: No valid direction!" << endl;
+            break;
+        }
+
+
+        // --------------------------------
+        // 4. MOVE
+        // --------------------------------
+
+        moveTo(nextDir);
+
+
+        // --------------------------------
+        // DEBUG
+        // --------------------------------
+
+        cerr << "Position: ("
+             << x << ", "
+             << y << ")  "
+             << "Direction: "
+             << dir
+             << "  Distance: "
+             << dist[y][x]
+             << endl;
+    }
+
+    return 0;
 }
